@@ -35,6 +35,19 @@ def main():
     print("Interpretation: active choice REDUCED California's donor "
           f"sign-up rate by {abs(att)*100:.1f}pp.")
 
+    # Placebo test: pretend the policy started one quarter early (Q2 2011).
+    # If the design is sound, this fake treatment should show no effect.
+    pre = df[df.Quarter.isin(["Q42010", "Q12011", "Q22011"])].copy()
+    pre["placebo"] = ((pre.State == "California")
+                      & (pre.Quarter == "Q22011")).astype(int)
+    placebo = smf.ols("Rate ~ placebo + C(State) + C(Quarter)", data=pre).fit(
+        cov_type="cluster", cov_kwds={"groups": pre["State"]}
+    )
+    print(f"Placebo test (fake Q2-2011 treatment): "
+          f"{placebo.params['placebo']:+.4f} "
+          f"(p={placebo.pvalues['placebo']:.3f}) -> "
+          f"{'no effect, as it should be' if placebo.pvalues['placebo'] > 0.05 else 'WARNING: pre-trend detected'}")
+
     # Figure: California vs. control-state average over time
     order = ["Q42010", "Q12011", "Q22011", "Q32011", "Q42011"]
     trend = (df.assign(grp=df.is_ca.map({1: "California", 0: "Other states (avg)"}))
