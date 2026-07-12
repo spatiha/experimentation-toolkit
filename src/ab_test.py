@@ -17,6 +17,26 @@ from statsmodels.stats.proportion import proportions_ztest, confint_proportions_
 RNG = np.random.default_rng(42)
 
 
+def srm_check(df: pd.DataFrame, expected_ratio: float = 0.5) -> float:
+    """Sample ratio mismatch check.
+
+    If the observed split between variants differs from the intended split
+    more than chance allows, the assignment mechanism is broken and no
+    downstream result can be trusted. Checked with a chi-square
+    goodness-of-fit test; p < 0.001 is the usual alarm threshold.
+    """
+    from scipy.stats import chisquare
+
+    counts = df["version"].value_counts()
+    total = counts.sum()
+    expected = [total * expected_ratio, total * (1 - expected_ratio)]
+    _, p = chisquare(counts.values, expected)
+    status = "FAIL - investigate assignment" if p < 0.001 else "pass"
+    print(f"SRM check: gate_30={counts.get('gate_30', 0):,}, "
+          f"gate_40={counts.get('gate_40', 0):,}, p={p:.3f} ({status})")
+    return p
+
+
 def analyze_metric(df: pd.DataFrame, metric: str) -> dict:
     g = df.groupby("version")[metric].agg(["sum", "count", "mean"])
     ctrl, treat = g.loc["gate_30"], g.loc["gate_40"]
@@ -53,6 +73,9 @@ def main():
     df = pd.read_csv("data/cookie_cats.csv")
     # Guardrail: remove one extreme-outlier bot account (49,854 game rounds)
     df = df[df.sum_gamerounds < df.sum_gamerounds.quantile(0.9999)]
+
+    # Trust the randomization before trusting the results
+    srm_check(df)
 
     results = [analyze_metric(df, m) for m in ["retention_1", "retention_7"]]
     res_df = pd.DataFrame(results)
